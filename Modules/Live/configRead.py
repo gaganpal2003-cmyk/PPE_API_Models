@@ -34,13 +34,13 @@ class ConfigData:
         return self.dbPath
 
     def get_person_model_path(self):
-        return self.personModelPath
+        return self.personModelPath.replace('\\', '/') if self.personModelPath else self.personModelPath
 
     def get_threshold(self):
         return self.threshold
 
     def get_coco_path(self):
-        return self.cocoPath
+        return self.cocoPath.replace('\\', '/') if self.cocoPath else self.cocoPath
 
     def get_object_list(self):
         return self.objectList
@@ -64,7 +64,7 @@ class ConfigData:
         return self.telegramChatId
 
     def get_ppe_model_path(self):
-        return self.PPEModelPath
+        return self.PPEModelPath.replace('\\', '/') if self.PPEModelPath else self.PPEModelPath
 
     def get_imp_ppe_name(self):
         return self.impPPEList
