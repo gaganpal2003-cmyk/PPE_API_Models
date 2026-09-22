@@ -38,9 +38,15 @@ from utils.general import (
 )
 from utils.torch_utils import select_device
 import pathlib
+import platform
 
-temp = pathlib.PosixPath
-pathlib.PosixPath = pathlib.WindowsPath
+if platform.system() == 'Windows':
+    temp = pathlib.PosixPath
+    pathlib.PosixPath = pathlib.WindowsPath
+else:
+    temp = pathlib.WindowsPath
+    pathlib.WindowsPath = pathlib.PosixPath
+
 from collections import deque
 
 deque = deque(maxlen=1)

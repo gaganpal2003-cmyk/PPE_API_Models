@@ -1,0 +1,14 @@
+.git
+.idea
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.mp4
+*.avi
+results_video
+Training
+ReportData
+CroppedImage
+PpeMissingPicture
+.env
