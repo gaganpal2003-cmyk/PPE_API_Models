@@ -421,11 +421,14 @@ class Camera(QObject):
                                             if (best_person_id, class_name) not in self.alerted_violations:
                                                 self.alerted_violations.add((best_person_id, class_name))
                                                 new_missing_ppe.append(class_name)
-                                                objName = list_of_detections[0]['name'] # just taking the first one as fallback
+                                                objName = class_name
                                                 
                                         # Always draw the bbox if it's an important PPE target
                                         object_box_color = self.FaceRecog.getOcrColors(int(cls))
                                         annotator.box_label([x1, y1, x2, y2], f"{class_name} {conf:.2f}", color=object_box_color)
+
+                            if len(new_missing_ppe) > 0:
+                                objName = ", ".join(list(dict.fromkeys(new_missing_ppe)))
 
                             self.PPEImagePath(annotator.result())
                             ppe_image_det = annotator.result()

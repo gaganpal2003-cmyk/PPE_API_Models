@@ -1,4 +1,4 @@
-from PyQt5.QtCore import QThread
+from PyQt5.QtCore import QThread, QTimer, Qt, pyqtSignal, QSize
 from gui.ConfCamera import *
 from PyQt5.QtGui import QImage
 import signal
@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 import cv2
 import numpy as np
 import io
+import os
+import requests
 from PIL import Image
 
 from playsound import playsound
@@ -38,11 +40,16 @@ class TelegramSender(QThread):
     def run(self):
         try:
             url = f'https://api.telegram.org/bot{self.token}/sendPhoto'
-            with open(self.photo_path, 'rb') as photo:
-                payload = {'chat_id': self.chat_id, 'caption': self.caption}
-                files = {'photo': photo}
-                requests.post(url, data=payload, files=files, timeout=10)
-            self.finished.emit(True)
+            if os.path.exists(self.photo_path):
+                with open(self.photo_path, 'rb') as photo:
+                    payload = {'chat_id': self.chat_id, 'caption': self.caption}
+                    files = {'photo': photo}
+                    resp = requests.post(url, data=payload, files=files, timeout=10)
+                    print("Telegram response:", resp.status_code)
+                self.finished.emit(True)
+            else:
+                print("Telegram photo not found:", self.photo_path)
+                self.finished.emit(False)
         except Exception as e:
             print("Telegram send error:", e)
             self.finished.emit(False)
@@ -91,10 +98,71 @@ class CameraMgr(QtWidgets.QWidget, Ui_AddCamera):
             self.camera_and_url[cam_url[0]] = cam_url[1]
             self.running_camera[cam_url[0]] = None
 
-            # create CrudOperation instance with self as parent
+        # create CrudOperation instance with self as parent
         self.crud = CrudOperation(self.dbr, parent=self)
 
         print("CameraMgr constructor is called")
+
+        # Dynamically check for new cameras in the database
+        self.dynamic_cam_timer = QTimer(self)
+        self.dynamic_cam_timer.timeout.connect(self.check_new_cameras_in_db)
+        self.dynamic_cam_timer.start(5000) # Check every 5 seconds
+
+    def check_new_cameras_in_db(self):
+        try:
+            result = self.dbr.select("SELECT id, cameName, camUrl, location, status FROM camera")
+            if not result:
+                return
+
+            current_cams_in_db = {row[1]: row for row in result} # row[1] is cameName
+            new_cameras_added = False
+
+            for cam_name, row in current_cams_in_db.items():
+                if cam_name not in self.camera_and_url:
+                    print(f"Dynamic Camera Added: {cam_name}")
+                    self.camera_and_url[cam_name] = row[2]
+                    self.running_camera[cam_name] = None
+                    self.cameraList.append(row)
+                    
+                    if cam_name not in self.selected_camera:
+                        self.selected_camera.append(cam_name)
+                    
+                    if self.mainWdgt.camList.findText(cam_name) == -1:
+                        self.mainWdgt.camList.addItem(cam_name)
+                    
+                    try:
+                        cameraCoordinate = self.camera_with_coordinates.get(cam_name, None)
+                    except Exception:
+                        cameraCoordinate = None
+                    
+                    self.camerDict[cam_name] = Camera(row[0], row[1], row[2], row[3], self.configData,
+                                                        self.mainWdgt, self.dbr, cameraCoordinate)
+                    
+                    if cam_name in getattr(self, 'camera_with_coordinates', {}):
+                        if cam_name not in getattr(self, 'listOfLinedDrawnCamera', []):
+                            self.listOfLinedDrawnCamera.append(cam_name)
+                    
+                    localThread = QThread(parent=self)
+                    self.camerDict[cam_name].moveToThread(localThread)
+                    localThread.started.connect(self.camerDict[cam_name].load_network_stream)
+                    self.camerDict[cam_name].finished.connect(localThread.quit)
+                    self.camerDict[cam_name].finished.connect(self.camerDict[cam_name].deleteLater)
+                    localThread.finished.connect(localThread.deleteLater)
+                    self.camerDict[cam_name].progress.connect(self.setDisplayFrame)
+                    localThread.start()
+                    self.threadList.append(localThread)
+                    
+                    try:
+                        self.dbr.execute(f"UPDATE camera SET status = 1 WHERE cameName = '{cam_name}';")
+                    except Exception:
+                        pass
+                    
+                    new_cameras_added = True
+
+            if new_cameras_added:
+                self.display_cam_list()
+        except Exception as e:
+            print(f"Error checking dynamic cameras: {e}")
 
     def getCurrentFrame(self):
         frame = None
@@ -447,20 +515,23 @@ class CameraMgr(QtWidgets.QWidget, Ui_AddCamera):
                         self.insertImageIntoDB(person_img, camname, check_missing_ppe, video_url)
                         if len(check_missing_ppe) > 0:
                             self.totalTruckExist += 1
+                            missing_ppe_str = ", ".join(list(dict.fromkeys(check_missing_ppe)))
+                            if missing_ppe_str:
+                                ob_na = missing_ppe_str
                             self.showNewCount(self.totalTruckExist, camname, ob_na)
                             cwd = os.getcwd()
                             cn = re.sub(r'(?<=[A-Za-z]) (?=\d)|(?<=\d) (?=[A-Za-z])', '_', camname)
                             cn = cn.strip()
                             photo_path = fr"{cwd}\PpeMissingPicture\{cn}\temp_cropped.jpg"
 
-                            # regdt = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-                            # message = f"Name: {ob_na}\nDate & Time: {regdt}\nLocation: {cn}"
-                            #
-                            # # Run Telegram sender in background
-                            # self.telegram_thread = TelegramSender(self.telegramTokenId, self.telegramChatId, photo_path,
-                            #                                       message)
-                            # self.telegram_thread.finished.connect(lambda success: print("Telegram sent:", success))
-                            # self.telegram_thread.start()
+                            regdt = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                            message = f"Name: {ob_na}\nDate & Time: {regdt}\nLocation: {cn}"
+
+                            # Run Telegram sender in background
+                            self.telegram_thread = TelegramSender(self.telegramTokenId, self.telegramChatId, photo_path,
+                                                                  message)
+                            self.telegram_thread.finished.connect(lambda success: print("Telegram sent:", success))
+                            self.telegram_thread.start()
 
                     # if new_truck is not None:
                     #     self.totalTruckExist += 1

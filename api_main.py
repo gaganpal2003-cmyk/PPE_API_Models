@@ -15,7 +15,9 @@ if yolo_root not in sys.path:
 
 # Import existing model logic
 from Modules.Live.configRead import ConfigData
+# pyrefly: ignore [missing-import]
 from ObjectDet import get_model, predict_api, get_profile
+# pyrefly: ignore [missing-import]
 from utils.augmentations import letterbox
 
 # Load environment variables
