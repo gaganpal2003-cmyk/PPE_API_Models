@@ -114,12 +114,12 @@ def root():
 
 @app.post("/detect")
 async def detect_ppe(file: UploadFile = File(...), api_key: str = Depends(get_api_key)):
-    if not file.content_type.startswith("image/"):
+    if file.content_type and not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File provided is not an image.")
 
     # Read image
     contents = await file.read()
-    nparr = np.fromstring(contents, np.uint8)
+    nparr = np.frombuffer(contents, np.uint8)
     im0s = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     
     if im0s is None:
