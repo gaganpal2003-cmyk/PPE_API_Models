@@ -104,6 +104,14 @@ def log_detection_if_needed(api_key: str, source_name: str, im0s, detections, co
         except Exception as e:
             print(f"Failed to log detection: {e}")
 
+@app.get("/")
+def root():
+    return {
+        "status": "online",
+        "service": "PPE Detection API",
+        "documentation": "/docs"
+    }
+
 @app.post("/detect")
 async def detect_ppe(file: UploadFile = File(...), api_key: str = Depends(get_api_key)):
     if not file.content_type.startswith("image/"):
