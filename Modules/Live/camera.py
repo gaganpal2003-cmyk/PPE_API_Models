@@ -327,6 +327,8 @@ class Camera(QObject):
                                                                 self.object_list, self.threshold, self.lineCoordinate)
 
                     try:
+                        if imgData is None or len(imgData) < 3:
+                            continue
                         final_image, person_found, list_of_detections = imgData[0], imgData[1], imgData[2]
                     except:
                         continue
@@ -348,7 +350,7 @@ class Camera(QObject):
                         new_missing_ppe = []
                         objName = ""
 
-                        if person_found and list_of_detections:
+                        if person_found and len(list_of_detections) > 0:
                             # Update tracker with person bboxes
                             bboxes = [det['bbox'] for det in list_of_detections]
                             tracker_inputs = []
@@ -394,7 +396,7 @@ class Camera(QObject):
                                         ppe_cy = (y1 + y2) // 2
                                         
                                         # Check if inside drawing box
-                                        if self.lineCoordinate:
+                                        if self.lineCoordinate is not None:
                                             try:
                                                 lx, ly = self.lineCoordinate[0][0], self.lineCoordinate[0][1]
                                                 lw, lh = self.lineCoordinate[1][0], self.lineCoordinate[1][1]
@@ -459,7 +461,7 @@ class Camera(QObject):
                             self.progress.emit()
 
                     except Exception as e:
-                        print(f"Error in load_network_stream: {e}")
+                        print(f"[Cloud API] Error: {e}")
                         pass
 
     @pyqtSlot(np.ndarray)

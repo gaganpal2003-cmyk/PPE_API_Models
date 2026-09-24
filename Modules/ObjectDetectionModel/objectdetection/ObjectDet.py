@@ -158,7 +158,7 @@ def extract_faces(model, names, dt, im, im0s, object_list, thres_h, lineCoordina
         # pred = non_max_suppression(pred, parameters_dict.get("conf_thres"), parameters_dict.get("iou_thres"),
         #                            parameters_dict.get("classes"), parameters_dict.get("agnostic_nms"),
         #                            max_det=parameters_dict.get("max_det"))
-    if lineCoordinate:
+    if lineCoordinate is not None:
         x, y = lineCoordinate[0][0], lineCoordinate[0][1]
         w, h = lineCoordinate[1][0], lineCoordinate[1][1]
         # cv2.rectangle(im0, (x, y), (x + w, y + h), color=colors(2, True), thickness=3, lineType=cv2.LINE_AA)
@@ -177,7 +177,7 @@ def extract_faces(model, names, dt, im, im0s, object_list, thres_h, lineCoordina
             det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
             for *xyxy, conf, cls in reversed(det):
                 x3, y3, x4, y4 = int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
-                if lineCoordinate:
+                if lineCoordinate is not None:
                     try:
                         x, y = lineCoordinate[0][0], lineCoordinate[0][1]
                         w, h = lineCoordinate[1][0], lineCoordinate[1][1]

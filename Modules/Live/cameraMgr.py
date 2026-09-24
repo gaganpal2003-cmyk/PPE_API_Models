@@ -340,19 +340,32 @@ class CameraMgr(QtWidgets.QWidget, Ui_AddCamera):
     #     self.dbr.insert(sql_insert_blob_query_01, data_01)
 
     def alert_beep(self, ob_nm):
+        cwd = os.getcwd()
         if ob_nm == 'no_helmet':
             try:
-                playsound('Detection/alerts/helmet.mp3')
+                sound_path = os.path.join(cwd, 'Detection', 'alerts', 'helmet.mp3')
+                if os.path.exists(sound_path):
+                    playsound(sound_path)
+                else:
+                    print(f"Sound file not found: {sound_path}")
             except Exception as e:
                 print("Error playing sound:", e)
         if ob_nm == 'no_vest':
             try:
-                playsound('Detection/alerts/vest.mp3')
+                sound_path = os.path.join(cwd, 'Detection', 'alerts', 'vest.mp3')
+                if os.path.exists(sound_path):
+                    playsound(sound_path)
+                else:
+                    print(f"Sound file not found: {sound_path}")
             except Exception as e:
                 print("Error playing sound:", e)
         if ob_nm == 'no_safty_shoes':
             try:
-                playsound('Detection/alerts/boot.mp3')
+                sound_path = os.path.join(cwd, 'Detection', 'alerts', 'boot.mp3')
+                if os.path.exists(sound_path):
+                    playsound(sound_path)
+                else:
+                    print(f"Sound file not found: {sound_path}")    
             except Exception as e:
                 print("Error playing sound:", e)
 
@@ -510,9 +523,12 @@ class CameraMgr(QtWidgets.QWidget, Ui_AddCamera):
                     # new_truck = self.camerDict[camname].get_new_truck()
                     check_missing_ppe = self.camerDict[camname].get_missing_ppe_list()
                     person_img = self.camerDict[camname].get_material_img()
-                    if check_missing_ppe:
+                    if check_missing_ppe is not None and isinstance(check_missing_ppe, list) and len(check_missing_ppe) > 0:
                         video_url = self.camerDict[camname].get_record_video_path()
-                        self.insertImageIntoDB(person_img, camname, check_missing_ppe, video_url)
+                        if person_img is not None:
+                            self.insertImageIntoDB(person_img, camname, check_missing_ppe, video_url)
+                        else:
+                            print(f"[Warning] person_img is None for {camname}, skipping DB insert.")
                         if len(check_missing_ppe) > 0:
                             self.totalTruckExist += 1
                             missing_ppe_str = ", ".join(list(dict.fromkeys(check_missing_ppe)))
