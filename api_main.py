@@ -127,7 +127,7 @@ async def detect_ppe(file: UploadFile = File(...), api_key: str = Depends(get_ap
 
     # Prepare image for YOLO (resize, pad, BGR to RGB, HWC to CHW)
     img_size = 640
-    stride = app_state["model"].stride
+    stride = int(app_state["model"].stride.max()) if hasattr(app_state["model"].stride, 'max') else int(app_state["model"].stride)
     im = letterbox(im0s, img_size, stride=stride, auto=True)[0]
     im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
     im = np.ascontiguousarray(im)
@@ -186,7 +186,7 @@ async def websocket_detect(websocket: WebSocket, api_key: str = Query(...), vide
                 
             # Prepare image for YOLO
             img_size = 640
-            stride = app_state["model"].stride
+            stride = int(app_state["model"].stride.max()) if hasattr(app_state["model"].stride, 'max') else int(app_state["model"].stride)
             im = letterbox(im0s, img_size, stride=stride, auto=True)[0]
             im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
             im = np.ascontiguousarray(im)
