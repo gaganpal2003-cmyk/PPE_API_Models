@@ -137,8 +137,10 @@ async def detect_ppe(file: UploadFile = File(...), api_key: str = Depends(get_ap
         log_detection_if_needed(api_key, "image_upload", im0s, detections, app_state["config"])
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Error during prediction: {e}")
-        raise HTTPException(status_code=500, detail="Error processing image.")
+        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
 
     return {"status": "success", "detections": detections}
 

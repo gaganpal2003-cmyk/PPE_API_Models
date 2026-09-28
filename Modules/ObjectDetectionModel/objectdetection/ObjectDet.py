@@ -191,7 +191,8 @@ class UniversalModelAdapter:
             im = np.ascontiguousarray(im)
 
             im_t = torch.from_numpy(im).to(self.device)
-            im_t = im_t.half() if getattr(self.model, 'fp16', False) else im_t.float()
+            has_cuda = torch.cuda.is_available() and str(self.device).startswith("cuda")
+            im_t = im_t.half() if (has_cuda and getattr(self.model, 'fp16', False)) else im_t.float()
             im_t /= 255.0
             if len(im_t.shape) == 3:
                 im_t = im_t[None]
@@ -202,7 +203,7 @@ class UniversalModelAdapter:
             detections = []
             for det in pred:
                 if len(det):
-                    det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0s.shape).round()
+                    det[:, :4] = scale_boxes(im_t.shape[2:], det[:, :4], im0s.shape).round()
                     for *xyxy, conf, cls in reversed(det):
                         bbox = [int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])]
                         cls_id = int(cls)
