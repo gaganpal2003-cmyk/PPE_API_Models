@@ -16,7 +16,7 @@ if yolo_root not in sys.path:
 # Import existing model logic
 from Modules.Live.configRead import ConfigData
 # pyrefly: ignore [missing-import]
-from ObjectDet import get_model, predict_api, get_profile
+from ObjectDet import get_model, predict_api, get_profile, UniversalModelAdapter
 # pyrefly: ignore [missing-import]
 from utils.augmentations import letterbox
 
@@ -59,16 +59,19 @@ async def startup_event():
     # Load the PPE model specifically to detect helmets and vests
     model_path = config.get_ppe_model_path()
     coco_path = config.get_coco_path()
+    threshold = float(config.get_threshold())
     
-    print(f"Loading PPE model from: {model_path}")
-    device, model = get_model(model_path, coco_path)
+    print(f"Loading PPE model via Universal Adapter from: {model_path}")
+    adapter = UniversalModelAdapter(model_path, coco_yaml=coco_path, conf_thres=threshold)
     
-    app_state["model"] = model
-    app_state["device"] = device
-    app_state["names"] = model.module.names if hasattr(model, 'module') else model.names
-    app_state["threshold"] = float(config.get_threshold())
+    app_state["adapter"] = adapter
+    app_state["model"] = getattr(adapter, "model", None)
+    app_state["device"] = adapter.device
+    app_state["names"] = adapter.names
+    app_state["threshold"] = threshold
     app_state["config"] = config
-    print("Model initialized successfully!")
+    print(f"Model initialized successfully via {adapter.backend_type} backend!")
+    print(f"Detected classes: {adapter.names}")
 
 import uuid
 from Modules.DbManagerMysql import DatabaseMysqlmgr
@@ -125,25 +128,10 @@ async def detect_ppe(file: UploadFile = File(...), api_key: str = Depends(get_ap
     if im0s is None:
         raise HTTPException(status_code=400, detail="Could not parse image.")
 
-    # Prepare image for YOLO (resize, pad, BGR to RGB, HWC to CHW)
-    img_size = 640
-    stride = int(app_state["model"].stride.max()) if hasattr(app_state["model"].stride, 'max') else int(app_state["model"].stride)
-    im = letterbox(im0s, img_size, stride=stride, auto=True)[0]
-    im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-    im = np.ascontiguousarray(im)
-
-    dt = get_profile(app_state["device"])
-    
-    # Run prediction
+    # Run prediction using the Universal Inference Adapter
     try:
-        detections = predict_api(
-            model=app_state["model"],
-            names=app_state["names"],
-            dt=dt,
-            im=im,
-            im0s=im0s,
-            thres_h=app_state["threshold"]
-        )
+        adapter: UniversalModelAdapter = app_state["adapter"]
+        detections = adapter.predict(im0s, conf_thres=app_state["threshold"])
         
         # Log to database if violations found
         log_detection_if_needed(api_key, "image_upload", im0s, detections, app_state["config"])
@@ -183,25 +171,11 @@ async def websocket_detect(websocket: WebSocket, api_key: str = Query(...), vide
             frame_count += 1
             if frame_count % process_every_n_frames != 0:
                 continue
-                
-            # Prepare image for YOLO
-            img_size = 640
-            stride = int(app_state["model"].stride.max()) if hasattr(app_state["model"].stride, 'max') else int(app_state["model"].stride)
-            im = letterbox(im0s, img_size, stride=stride, auto=True)[0]
-            im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
-            im = np.ascontiguousarray(im)
-
-            dt = get_profile(app_state["device"])
             
-            # Run prediction
-            detections = predict_api(
-                model=app_state["model"],
-                names=app_state["names"],
-                dt=dt,
-                im=im,
-                im0s=im0s,
-                thres_h=app_state["threshold"]
-            )
+                
+            # Run prediction using the Universal Inference Adapter
+            adapter: UniversalModelAdapter = app_state["adapter"]
+            detections = adapter.predict(im0s, conf_thres=app_state["threshold"])
             
             # Log to database if violations found
             log_detection_if_needed(api_key, video_url, im0s, detections, app_state["config"])

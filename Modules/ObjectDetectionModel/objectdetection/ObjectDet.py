@@ -34,8 +34,9 @@ from utils.general import (
     cv2,
     non_max_suppression,
     scale_boxes,
-
 )
+from utils.augmentations import letterbox
+import numpy as np
 from utils.torch_utils import select_device
 import pathlib
 import platform
@@ -90,6 +91,137 @@ def get_model(myModel, coco):
     #                             data=parameters_dict.get("data"), fp16=False)
 
     return device, model_
+
+
+class UniversalModelAdapter:
+    """
+    Universal Model Loader & Inference Adapter.
+    Auto-detects model format:
+      - YOLOv5 PyTorch checkpoints (models.yolo.DetectionModel)
+      - Ultralytics YOLO models (YOLOv8, YOLOv9, YOLOv10, YOLOv11, ONNX, etc.)
+    Provides a unified predict(im0s, conf_thres) method that accepts raw BGR images
+    and returns standardized JSON-serializable detections:
+    [
+        {"class": "helmet", "confidence": 0.88, "bbox": [x1, y1, x2, y2]}
+    ]
+    """
+    def __init__(self, model_path, coco_yaml=None, conf_thres=0.20, class_map=None):
+        self.model_path = model_path
+        self.coco_yaml = coco_yaml
+        self.conf_thres = float(conf_thres)
+        self.class_map = class_map or {}
+
+        has_cuda = torch.cuda.is_available()
+        self.device = select_device("0" if has_cuda else "cpu")
+        self.backend_type = "yolov5"
+        self.model = None
+        self.names = {}
+
+        # 1. Determine model format
+        is_ultralytics = False
+        lower_path = str(model_path).lower()
+        if lower_path.endswith((".onnx", ".engine", ".tflite")):
+            is_ultralytics = True
+        else:
+            try:
+                ckpt = torch.load(model_path, map_location="cpu")
+                if isinstance(ckpt, dict) and "model" in ckpt:
+                    mod_name = type(ckpt["model"]).__module__
+                    if mod_name.startswith("ultralytics"):
+                        is_ultralytics = True
+            except Exception:
+                pass
+
+        # 2. Initialize the backend
+        if is_ultralytics:
+            try:
+                from ultralytics import YOLO
+                self.model = YOLO(model_path)
+                self.backend_type = "ultralytics"
+                raw_names = getattr(self.model, "names", {})
+                self.names = raw_names if isinstance(raw_names, dict) else {i: n for i, n in enumerate(raw_names)}
+                print(f"[UniversalModelAdapter] Loaded Ultralytics model: {model_path} on {self.device}")
+            except Exception as e:
+                print(f"[UniversalModelAdapter] Ultralytics load failed ({e}), falling back to YOLOv5 DetectMultiBackend")
+                is_ultralytics = False
+
+        if not is_ultralytics:
+            self.model = DetectMultiBackend(
+                model_path,
+                device=self.device,
+                dnn=False,
+                data=coco_yaml,
+                fp16=has_cuda
+            )
+            self.backend_type = "yolov5"
+            raw_names = self.model.module.names if hasattr(self.model, 'module') else self.model.names
+            self.names = raw_names if isinstance(raw_names, dict) else {i: n for i, n in enumerate(raw_names)}
+            print(f"[UniversalModelAdapter] Loaded YOLOv5 model: {model_path} on {self.device}")
+
+    def predict(self, im0s, conf_thres=None):
+        """
+        Runs inference on a raw BGR image (numpy ndarray).
+        Returns a standardized list of detections:
+        [{'class': str, 'confidence': float, 'bbox': [x1, y1, x2, y2]}]
+        """
+        threshold = float(conf_thres) if conf_thres is not None else self.conf_thres
+
+        if self.backend_type == "ultralytics":
+            results = self.model.predict(im0s, conf=threshold, verbose=False)
+            detections = []
+            for r in results:
+                for box in r.boxes:
+                    cls_id = int(box.cls[0].item())
+                    raw_name = r.names.get(cls_id, str(cls_id)) if isinstance(r.names, dict) else r.names[cls_id]
+                    cls_name = self.class_map.get(raw_name, raw_name)
+                    conf = float(box.conf[0].item())
+                    xyxy = [int(v) for v in box.xyxy[0].tolist()]
+                    detections.append({
+                        "class": cls_name,
+                        "confidence": round(conf, 4),
+                        "bbox": xyxy
+                    })
+            return detections
+        else:
+            # YOLOv5 inference pipeline
+            img_size = 640
+            stride = int(self.model.stride.max()) if hasattr(self.model.stride, 'max') else int(self.model.stride)
+            im = letterbox(im0s, img_size, stride=stride, auto=True)[0]
+            im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+            im = np.ascontiguousarray(im)
+
+            im_t = torch.from_numpy(im).to(self.device)
+            im_t = im_t.half() if getattr(self.model, 'fp16', False) else im_t.float()
+            im_t /= 255.0
+            if len(im_t.shape) == 3:
+                im_t = im_t[None]
+
+            pred = self.model(im_t, augment=False, visualize=False)
+            pred = non_max_suppression(pred, threshold, 0.45, None, False, max_det=1000)
+
+            detections = []
+            for det in pred:
+                if len(det):
+                    det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0s.shape).round()
+                    for *xyxy, conf, cls in reversed(det):
+                        bbox = [int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])]
+                        cls_id = int(cls)
+                        raw_name = self.names.get(cls_id, str(cls_id))
+                        cls_name = self.class_map.get(raw_name, raw_name)
+                        detections.append({
+                            "class": cls_name,
+                            "confidence": round(float(conf), 4),
+                            "bbox": bbox
+                        })
+            return detections
+
+
+def get_universal_model(model_path, coco_yaml=None, conf_thres=0.20, class_map=None):
+    """
+    Convenience function returning the UniversalModelAdapter instance.
+    """
+    return UniversalModelAdapter(model_path, coco_yaml=coco_yaml, conf_thres=conf_thres, class_map=class_map)
+
 
 
 def find_img_size(stride):
